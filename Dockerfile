@@ -31,6 +31,12 @@ RUN xx-cargo --setup-target-triple
 # Enable Clang, LTO, and Pi 5 (Cortex-A76) hardware optimizations
 ARG TARGET_CPU=cortex-a76
 ENV CC=clang CXX=clang++
+
+# Force maximum performance profile overrides
+ENV CARGO_PROFILE_RELEASE_LTO="fat"
+ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
+ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+
 ENV RUSTFLAGS="-Clinker-plugin-lto -Clink-arg=-fuse-ld=lld -C target-cpu=${TARGET_CPU}"
 
 # Compile Pumpkin specifically for the target architecture
