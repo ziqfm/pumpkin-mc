@@ -37,4 +37,4 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/pumpkin:latest
+            ghcr.io/${{ github.repository_owner }}/pumpkin-mc:latest
