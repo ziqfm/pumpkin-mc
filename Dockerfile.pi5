@@ -1,14 +1,19 @@
 FROM rust:1-alpine3.23 AS builder
 
-# 1. Install LLVM 21 components
+# 1. Install LLVM 21 components natively
 RUN apk add --no-cache \
     clang21 lld21 curl jq pkgconf git ca-certificates \
     build-base pax-utils
 
-# 2. Standard alias for versioned Clang (No dirty cc/ld hacks!)
+# 2. The Complete Symlink Matrix
+# This guarantees no build script can escape the LLVM 21 toolchain
 RUN ln -sf /usr/bin/clang-21 /usr/bin/clang && \
     ln -sf /usr/bin/clang++-21 /usr/bin/clang++ && \
-    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld
+    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld && \
+    ln -sf /usr/bin/lld-21 /usr/bin/lld && \
+    ln -sf /usr/bin/clang /usr/bin/cc && \
+    ln -sf /usr/bin/clang++ /usr/bin/c++ && \
+    ln -sf /usr/bin/ld.lld /usr/bin/ld
 
 WORKDIR /app
 COPY . .
@@ -18,11 +23,11 @@ ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
-# 4. Tell the `cc` crate (used by serde) to use Clang explicitly
+# 4. Enforce Clang for all C-code build scripts (like serde)
 ENV CC=clang CXX=clang++
 
-# 5. THE FIX: Add `-C linker=clang` to tell Rustc to bypass GCC entirely
-ENV RUSTFLAGS="-C linker=clang -C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
+# 5. THE FIX: Use --ld-path to forcefully point Clang to the linker binary
+ENV RUSTFLAGS="-C linker=clang -C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=--ld-path=/usr/bin/ld.lld -C target-cpu=cortex-a76"
 
 # Build the binary natively
 RUN cargo build --release --locked
