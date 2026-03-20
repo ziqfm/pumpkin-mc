@@ -8,7 +8,7 @@ COPY --from=xx / /
 # Install native LLVM 21 components
 RUN apk add --no-cache \
     clang21 lld21 curl jq pkgconf git ca-certificates \
-    build-base
+    build-base bash
 
 RUN curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
     && cargo binstall --no-confirm lddtree@0.5.0
