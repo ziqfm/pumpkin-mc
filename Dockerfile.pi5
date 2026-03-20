@@ -1,54 +1,50 @@
-# ---------------------------------------------------------
-# Stage 1: Native ARM64 Builder with LLVM 21 Match
-# ---------------------------------------------------------
-FROM rust:1-slim-bookworm AS builder
+# syntax=docker/dockerfile:1
 
-# 1. Install base dependencies and keys for LLVM
-RUN apt-get update && apt-get install -y \
-    curl jq pkg-config git ca-certificates \
-    lsb-release wget software-properties-common gnupg \
-    && rm -rf /var/lib/apt/lists/*
+# ---------------------------------------------------------
+# Stage 1: Native ARM64 Builder (Alpine / Musl)
+# ---------------------------------------------------------
+FROM rust:1-alpine3.23 AS builder
 
-# 2. NO COMPROMISES: Install LLVM 21 to perfectly match Rust 1.94
-RUN wget https://apt.llvm.org/llvm.sh && \
-    chmod +x llvm.sh && \
-    ./llvm.sh 21 && \
-    apt-get update && apt-get install -y lld-21 clang-21 && \
-    ln -sf /usr/bin/clang-21 /usr/bin/clang && \
+# 1. Install LLVM 21 components directly from Alpine's package manager!
+# No 5-hour wget scripts needed. Alpine natively supports Clang 21.
+RUN apk add --no-cache \
+    clang21 lld21 curl jq pkgconf git ca-certificates \
+    build-base pax-utils
+
+# 2. Symlink LLVM 21 to act as the default system compilers so Rust LTO matches
+RUN ln -sf /usr/bin/clang-21 /usr/bin/clang && \
     ln -sf /usr/bin/clang++-21 /usr/bin/clang++ && \
     ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld && \
     ln -sf /usr/bin/lld-21 /usr/bin/lld
 
-# 3. Install lddtree
-RUN curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
-    && cargo binstall --no-confirm lddtree@0.5.0
-
 WORKDIR /app
 COPY . .
 
-# 4. Extreme optimizations
+# 3. Extreme Cargo Optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
-# Hardware tuning and strictly enforced plugin LTO
+# 4. Hardware tuning and STRICT plugin LTO for the Cortex-A76
 ENV CC=clang CXX=clang++
-ENV RUSTFLAGS="-Clinker-plugin-lto -Clink-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
+ENV RUSTFLAGS="-C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
 
 # Build the binary natively
 RUN cargo build --release --locked
 
-# 5. Isolate the binary, hard-linked dependencies, and SSL certs
+# 5. Isolate the binary, dynamically linked musl dependencies, and SSL certs
 RUN <<'EOF'
     set -e
     mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
 
     cp target/release/pumpkin /out/sbin/pumpkin
 
+    # Use lddtree to grab EXACTLY what the binary needs (libc.musl, libgcc_s)
     lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
         awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
         while read cmd; do eval "$cmd"; done
 
+    # Grab root certificates for outbound HTTPS calls (Mojang Auth)
     cp -r /etc/ssl/certs /out/etc/ssl/
 EOF
 
@@ -57,11 +53,17 @@ EOF
 # ---------------------------------------------------------
 FROM scratch
 
+# Copy root paths (SSL)
 COPY --from=builder /out/libs-root/ /
 COPY --from=builder /out/etc/ /etc/
+
+# Copy musl libraries
 COPY --from=builder /out/libs/ /usr/lib/
+
+# Copy the heavily optimized binary
 COPY --from=builder /out/sbin/ /sbin/
 
+# Configure the environment
 ENV LD_LIBRARY_PATH=/usr/lib
 ENV RUST_BACKTRACE=1
 
