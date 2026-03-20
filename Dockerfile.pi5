@@ -42,10 +42,10 @@ RUN <<'EOF'
     set -e
     mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
 
-    # Because we used xx-cargo, the binary is output to the specific target triple folder
     TRIPLE=$(xx-cargo --print-target-triple)
     cp target/$TRIPLE/release/pumpkin /out/sbin/pumpkin
 
+    # The awk script will now parse the paths perfectly without trailing parentheses
     lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
         awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
         while read cmd; do eval "$cmd"; done
