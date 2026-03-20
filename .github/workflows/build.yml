@@ -11,16 +11,16 @@ jobs:
       contents: read
 
     steps:
-      # 1. Checkout YOUR repository (This grabs your Dockerfile.pi5)
+      # 1. Checkout YOUR repository to get Dockerfile.pi5
       - name: Checkout your repository
         uses: actions/checkout@v4
 
-      # 2. Clone the upstream Pumpkin code into a subfolder named "pumpkin-src"
+      # 2. Clone the upstream Pumpkin code into a subfolder
       - name: Checkout upstream Pumpkin code
         run: |
           git clone --depth 1 https://github.com/Pumpkin-MC/Pumpkin.git pumpkin-src
           
-          # Move your custom Dockerfile into the Pumpkin source code folder
+          # Move your custom Dockerfile into the source folder
           cp Dockerfile.pi5 pumpkin-src/Dockerfile.pi5
 
       # 3. Log in to GHCR
@@ -31,11 +31,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 4. Setup Buildx
+      # 4. Setup Buildx (Required for multi-stage exporting)
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 5. Build and Push (Targeting the pumpkin-src folder)
+      # 5. Build and Push directly from the pumpkin-src folder
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
