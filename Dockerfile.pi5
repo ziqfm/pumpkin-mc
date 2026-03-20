@@ -1,21 +1,14 @@
-# syntax=docker/dockerfile:1
-
-# ---------------------------------------------------------
-# Stage 1: Native ARM64 Builder (Alpine / Musl)
-# ---------------------------------------------------------
 FROM rust:1-alpine3.23 AS builder
 
-# 1. Install LLVM 21 components directly from Alpine's package manager!
-# No 5-hour wget scripts needed. Alpine natively supports Clang 21.
+# 1. Install LLVM 21 components
 RUN apk add --no-cache \
     clang21 lld21 curl jq pkgconf git ca-certificates \
     build-base pax-utils
 
-# 2. Symlink LLVM 21 to act as the default system compilers so Rust LTO matches
+# 2. Standard alias for versioned Clang (No dirty cc/ld hacks!)
 RUN ln -sf /usr/bin/clang-21 /usr/bin/clang && \
     ln -sf /usr/bin/clang++-21 /usr/bin/clang++ && \
-    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld && \
-    ln -sf /usr/bin/lld-21 /usr/bin/lld
+    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld
 
 WORKDIR /app
 COPY . .
@@ -25,45 +18,37 @@ ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
-# 4. Hardware tuning and STRICT plugin LTO for the Cortex-A76
+# 4. Tell the `cc` crate (used by serde) to use Clang explicitly
 ENV CC=clang CXX=clang++
-ENV RUSTFLAGS="-C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
+
+# 5. THE FIX: Add `-C linker=clang` to tell Rustc to bypass GCC entirely
+ENV RUSTFLAGS="-C linker=clang -C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
 
 # Build the binary natively
 RUN cargo build --release --locked
 
-# 5. Isolate the binary, dynamically linked musl dependencies, and SSL certs
+# 6. Isolate the binary, dynamically linked musl dependencies, and SSL certs
 RUN <<'EOF'
     set -e
     mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
 
     cp target/release/pumpkin /out/sbin/pumpkin
 
-    # Use lddtree to grab EXACTLY what the binary needs (libc.musl, libgcc_s)
     lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
         awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
         while read cmd; do eval "$cmd"; done
 
-    # Grab root certificates for outbound HTTPS calls (Mojang Auth)
     cp -r /etc/ssl/certs /out/etc/ssl/
 EOF
 
-# ---------------------------------------------------------
-# Stage 2: The Void (Scratch)
-# ---------------------------------------------------------
+
 FROM scratch
 
-# Copy root paths (SSL)
 COPY --from=builder /out/libs-root/ /
 COPY --from=builder /out/etc/ /etc/
-
-# Copy musl libraries
 COPY --from=builder /out/libs/ /usr/lib/
-
-# Copy the heavily optimized binary
 COPY --from=builder /out/sbin/ /sbin/
 
-# Configure the environment
 ENV LD_LIBRARY_PATH=/usr/lib
 ENV RUST_BACKTRACE=1
 
