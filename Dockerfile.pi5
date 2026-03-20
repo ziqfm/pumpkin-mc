@@ -1,43 +1,47 @@
-FROM rust:1-alpine3.23 AS builder
+FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx AS xx
 
-# 1. Install LLVM 21 components natively
+FROM --platform=$BUILDPLATFORM rust:1-alpine3.23 AS builder
+
+# Copy the xx scripts into our builder
+COPY --from=xx / /
+
+# Install native LLVM 21 components
 RUN apk add --no-cache \
     clang21 lld21 curl jq pkgconf git ca-certificates \
     build-base pax-utils
 
-# 2. The Complete Symlink Matrix
-# This guarantees no build script can escape the LLVM 21 toolchain
-RUN ln -sf /usr/bin/clang-21 /usr/bin/clang && \
-    ln -sf /usr/bin/clang++-21 /usr/bin/clang++ && \
-    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld && \
-    ln -sf /usr/bin/lld-21 /usr/bin/lld && \
-    ln -sf /usr/bin/clang /usr/bin/cc && \
-    ln -sf /usr/bin/clang++ /usr/bin/c++ && \
-    ln -sf /usr/bin/ld.lld /usr/bin/ld
-
 WORKDIR /app
 COPY . .
 
-# 3. Extreme Cargo Optimizations
+# Tell xx what we are building for (it will detect it matches the host and run natively)
+ARG TARGETPLATFORM
+
+# Let xx configure the Rust toolchain to properly separate host/target builds
+RUN xx-cargo --setup-target-triple
+
+# Tell xx to use Clang
+ENV CC=clang
+ENV CXX=clang++
+
+# Extreme Cargo Optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
-# 4. Enforce Clang for all C-code build scripts (like serde)
-ENV CC=clang CXX=clang++
+# The extreme flags. xx-cargo will shield serde/quote from these automatically!
+ENV RUSTFLAGS="-C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
 
-# 5. THE FIX: Use --ld-path to forcefully point Clang to the linker binary
-ENV RUSTFLAGS="-C linker=clang -C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=--ld-path=/usr/bin/ld.lld -C target-cpu=cortex-a76"
+# Build the binary using the xx wrapper
+RUN xx-cargo build --release --locked
 
-# Build the binary natively
-RUN cargo build --release --locked
-
-# 6. Isolate the binary, dynamically linked musl dependencies, and SSL certs
+# Isolate the binary, dynamically linked musl dependencies, and SSL certs
 RUN <<'EOF'
     set -e
     mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
 
-    cp target/release/pumpkin /out/sbin/pumpkin
+    # Because we used xx-cargo, the binary is output to the specific target triple folder
+    TRIPLE=$(xx-cargo --print-target-triple)
+    cp target/$TRIPLE/release/pumpkin /out/sbin/pumpkin
 
     lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
         awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
