@@ -1,25 +1,44 @@
+# ---------------------------------------------------------
+# Stage 1: Native ARM64 Builder with LLVM 21 Match
+# ---------------------------------------------------------
 FROM rust:1-slim-trixie AS builder
 
+# 1. Install base dependencies and keys for LLVM
 RUN apt-get update && apt-get install -y \
-    clang lld curl jq pkg-config git ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
+    curl jq pkg-config git ca-certificates \
+    lsb-release wget software-properties-common gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. NO COMPROMISES: Install LLVM 21 to perfectly match Rust 1.94
+RUN wget https://apt.llvm.org/llvm.sh && \
+    chmod +x llvm.sh && \
+    ./llvm.sh 21 && \
+    apt-get update && apt-get install -y lld-21 clang-21 && \
+    ln -sf /usr/bin/clang-21 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-21 /usr/bin/clang++ && \
+    ln -sf /usr/bin/ld.lld-21 /usr/bin/ld.lld && \
+    ln -sf /usr/bin/lld-21 /usr/bin/lld
+
+# 3. Install lddtree
+RUN curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
     && cargo binstall --no-confirm lddtree@0.5.0
 
 WORKDIR /app
 COPY . .
 
-# Hardware tuning and extreme optimizations
+# 4. Extreme optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
+
+# Hardware tuning and strictly enforced plugin LTO
 ENV CC=clang CXX=clang++
 ENV RUSTFLAGS="-Clinker-plugin-lto -Clink-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
 
 # Build the binary natively
 RUN cargo build --release --locked
 
-# Isolate the binary, hard-linked dependencies, and SSL certs
+# 5. Isolate the binary, hard-linked dependencies, and SSL certs
 RUN <<'EOF'
     set -e
     mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
