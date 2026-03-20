@@ -1,51 +1,53 @@
-# ---------------------------------------------------------
-# Stage 1: Native ARM64 Builder
-# ---------------------------------------------------------
 FROM rust:1-slim-trixie AS builder
 
-# Install build dependencies required by standard Rust/C compilation
 RUN apt-get update && apt-get install -y \
-    clang lld pkg-config git \
-    && rm -rf /var/lib/apt/lists/*
+    clang lld curl jq pkg-config git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
+    && cargo binstall --no-confirm lddtree@0.5.0
 
 WORKDIR /app
 COPY . .
 
-# Force maximum performance profile overrides for a tiny, fast binary
+# Hardware tuning and extreme optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
 ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
-
-# Enable Pi 5 (Cortex-A76) hardware optimizations and fast linker
 ENV CC=clang CXX=clang++
 ENV RUSTFLAGS="-Clinker-plugin-lto -Clink-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
 
-# Build the binary natively on ARM64
+# Build the binary natively
 RUN cargo build --release --locked
 
+# Isolate the binary, hard-linked dependencies, and SSL certs
+RUN <<'EOF'
+    set -e
+    mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
+
+    cp target/release/pumpkin /out/sbin/pumpkin
+
+    lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
+        awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
+        while read cmd; do eval "$cmd"; done
+
+    cp -r /etc/ssl/certs /out/etc/ssl/
+EOF
+
 # ---------------------------------------------------------
-# Stage 2: Minimal Trixie Runtime
+# Stage 2: The Void (Scratch)
 # ---------------------------------------------------------
-FROM debian:trixie-slim
+FROM scratch
 
-# Install root certificates (required for outward HTTPS calls)
-# and clean up the apt cache to keep the image extremely small
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /out/libs-root/ /
+COPY --from=builder /out/etc/ /etc/
+COPY --from=builder /out/libs/ /usr/lib/
+COPY --from=builder /out/sbin/ /sbin/
 
-# Create a non-root user for security
-RUN useradd -m -u 1000 -U -s /bin/sh pumpkin
-
-WORKDIR /server
-
-# Copy only the compiled binary from the builder
-COPY --from=builder --chown=pumpkin:pumpkin /app/target/release/pumpkin /usr/local/bin/pumpkin
-
-# Configure the environment
+ENV LD_LIBRARY_PATH=/usr/lib
 ENV RUST_BACKTRACE=1
-EXPOSE 25565
 
-# Run as the unprivileged user
-USER pumpkin
-CMD ["pumpkin"]
+EXPOSE 25565
+WORKDIR /server
+USER 1000:1000
+
+CMD ["/sbin/pumpkin"]
