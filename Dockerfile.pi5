@@ -1,7 +1,7 @@
 # ---------------------------------------------------------
 # Stage 1: Native ARM64 Builder with LLVM 21 Match
 # ---------------------------------------------------------
-FROM rust:1-slim-trixie AS builder
+FROM rust:1-slim-bookworm AS builder
 
 # 1. Install base dependencies and keys for LLVM
 RUN apt-get update && apt-get install -y \
