@@ -16,7 +16,8 @@ jobs:
 
       - name: Checkout upstream Pumpkin code
         run: |
-          git clone --depth 1 https://github.com/Pumpkin-MC/Pumpkin.git pumpkin-src
+          # git clone --depth 1 https://github.com/Pumpkin-MC/Pumpkin.git pumpkin-src
+          git clone --depth 1 https://github.com/ziqfm/Pumpkin.git pumpkin-src
           cp Dockerfile.pi5 pumpkin-src/Dockerfile.pi5
 
       - name: Login to GitHub Container Registry
