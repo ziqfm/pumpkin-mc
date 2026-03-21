@@ -65,7 +65,7 @@ ENV LD_LIBRARY_PATH=/usr/lib
 ENV RUST_BACKTRACE=1
 
 EXPOSE 25565
-WORKDIR /server
+WORKDIR /pumpkin
 USER 1000:1000
 
 CMD ["/sbin/pumpkin"]
