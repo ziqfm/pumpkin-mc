@@ -7,6 +7,8 @@ COPY --from=xx / /
 
 # Install native LLVM 21 components
 RUN apk add --no-cache \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
     clang22 lld22 curl jq pkgconf git ca-certificates \
     build-base bash
 
@@ -23,8 +25,8 @@ ARG TARGETPLATFORM
 RUN xx-cargo --setup-target-triple
 
 # Tell xx to use Clang
-ENV CC=clang
-ENV CXX=clang++
+ENV CC=clang-22
+ENV CXX=clang++-22
 
 # Extreme Cargo Optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
