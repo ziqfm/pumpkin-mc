@@ -2,6 +2,8 @@ FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx AS xx
 
 FROM --platform=$BUILDPLATFORM rust:1-alpine AS builder
 
+ARG LLVM_VERSION=23
+
 # Copy the xx scripts into our builder
 COPY --from=xx / /
 
@@ -9,7 +11,7 @@ COPY --from=xx / /
 RUN apk add --no-cache \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
-    clang22 lld22 curl jq pkgconf git ca-certificates \
+    clang${LLVM_VERSION} lld${LLVM_VERSION} curl jq pkgconf git ca-certificates \
     build-base bash
 
 RUN curl --retry 5 -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
@@ -25,8 +27,8 @@ ARG TARGETPLATFORM
 RUN xx-cargo --setup-target-triple
 
 # Tell xx to use Clang
-ENV CC=clang-22
-ENV CXX=clang++-22
+ENV CC=clang-${LLVM_VERSION}
+ENV CXX=clang++-${LLVM_VERSION}
 
 # Extreme Cargo Optimizations
 ENV CARGO_PROFILE_RELEASE_LTO="fat"
