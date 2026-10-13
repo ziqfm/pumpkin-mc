@@ -36,7 +36,7 @@ ENV CARGO_PROFILE_RELEASE_STRIP="symbols"
 ENV CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1
 
 # The extreme flags. xx-cargo will shield serde/quote from these automatically!
-ENV RUSTFLAGS="-C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76"
+ENV RUSTFLAGS="-C target-feature=-crt-static -Clinker-plugin-lto -C link-arg=-fuse-ld=lld -C target-cpu=cortex-a76 -C codegen-units=1"
 
 # Build the binary using the xx wrapper
 RUN xx-cargo build --release --locked
