@@ -1,8 +1,8 @@
 FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx AS xx
 
-FROM --platform=$BUILDPLATFORM rust:1-alpine AS builder
+FROM --platform=$BUILDPLATFORM rust:1.98-alpine AS builder
 
-ARG LLVM_VERSION=23
+ARG LLVM_VERSION=22
 
 # Copy the xx scripts into our builder
 COPY --from=xx / /
