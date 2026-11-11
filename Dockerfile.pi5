@@ -46,6 +46,7 @@ ENV RUST_MIN_STACK=268435456
 RUN xx-cargo build --release --locked
 
 # Isolate the binary, dynamically linked musl dependencies, and SSL certs
+# Build, then report codegen-units per crate (replaces: RUN xx-cargo build --release --locked)
 RUN <<'EOF'
 set -e
 CARGO_TERM_VERBOSE=true xx-cargo build --release --locked > /tmp/build.log 2>&1 \
@@ -65,6 +66,21 @@ END {
   n = 0; for (c in bad) { if (!n++) print "Target crates NOT at 1 codegen unit:"; print "  " c " (" bad[c] ")" }
   if (!n) print "All target crates compiled with codegen-units=1."
 }' /tmp/build.log
+EOF
+
+# Isolate the binary, dynamically linked musl dependencies, and SSL certs
+RUN <<'EOF'
+    set -e
+    mkdir -p /out/sbin /out/libs /out/libs-root /out/etc/ssl
+
+    TRIPLE=$(xx-cargo --print-target-triple)
+    cp target/$TRIPLE/release/pumpkin /out/sbin/pumpkin
+
+    lddtree /out/sbin/pumpkin | awk '{print $(NF-0) " " $1}' | sort -u -k 1,1 | \
+        awk '{dest = ($2 ~ /^\//) ? "/out/libs-root" $2 : "/out/libs/" $2; print "install -D " $1 " " dest}' | \
+        while read cmd; do eval "$cmd"; done
+
+    cp -r /etc/ssl/certs /out/etc/ssl/
 EOF
 
 
